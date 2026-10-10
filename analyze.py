@@ -288,13 +288,14 @@ def main():
     parser.add_argument("--type", choices=ANALYSIS_GROUPS.keys(), help="Run only this analysis type (default: all)")
     parser.add_argument("--report", choices=["stats", "games", "positions:csv"], default="stats",
                         help="What to print: stats (default), games (PGN of games matching --type), positions:csv (position descriptions as CSV)")
+    parser.add_argument("--games-count", type=int, help="Analyze only the first N games (0 means all)")
     args = parser.parse_args()
 
     if args.report in ["games", "positions:csv"] and args.type is None:
         parser.error(f"--report={args.report} requires --type")
 
     games = read_games(args.pgn)
-    #games = games[:10]
+    games = games[:args.games_count or None]
     stats = Stats(total_games=len(games))
 
     if args.player is None:
