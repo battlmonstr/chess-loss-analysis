@@ -228,13 +228,21 @@ def analyze_lost_evals(game, player):
     game.analyses["evals"] = evaluate_game(game, color)
 
 
-ANALYSES = [
-    #analyze_lost_on_time,
-    #analyze_lost_on_time_with_advantage,
-    #analyze_lost_in_time_trouble,
-    #analyze_lost_in_time_trouble_with_advantage,
-    analyze_one_move_blunders,
-]
+ANALYSES = {
+    "lost_on_time": analyze_lost_on_time,
+    "lost_on_time_with_advantage": analyze_lost_on_time_with_advantage,
+    "lost_in_time_trouble": analyze_lost_in_time_trouble,
+    "lost_in_time_trouble_with_advantage": analyze_lost_in_time_trouble_with_advantage,
+    "one_move_blunders": analyze_one_move_blunders,
+}
+
+ANALYSIS_GROUPS = {
+    "lost_on_time": ["lost_on_time"],
+    "lost_on_time_with_advantage": ["lost_on_time", "lost_on_time_with_advantage"],
+    "lost_in_time_trouble": ["lost_on_time", "lost_in_time_trouble"],
+    "lost_in_time_trouble_with_advantage": ["lost_on_time", "lost_in_time_trouble", "lost_in_time_trouble_with_advantage"],
+    "one_move_blunders": ["one_move_blunders"],
+}
 
 def game_summary(game, player):
     white = game.headers.get("White")
@@ -254,6 +262,7 @@ def main():
     parser.add_argument("pgn", help="Path to a .pgn file")
     parser.add_argument("--player", help="Player name to analyze")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel Stockfish workers")
+    parser.add_argument("--type", choices=ANALYSIS_GROUPS.keys(), help="Run only this analysis type (default: all)")
     args = parser.parse_args()
 
     games = read_games(args.pgn)
@@ -278,8 +287,10 @@ def main():
     for i in range(len(games)):
         game = games[i]
         print(f"analyzing game {i + 1} of {stats.total_games}")
-        for analyze in ANALYSES:
-            analyze(game, args.player, stats)
+
+        analysis_names = ANALYSIS_GROUPS[args.type] if args.type else list(ANALYSIS_GROUPS)
+        for name in analysis_names:
+            ANALYSES[name](game, args.player, stats)
 
         summary = game_summary(game, args.player)
         #print(json.dumps(summary, indent=2))
