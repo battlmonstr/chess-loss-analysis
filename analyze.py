@@ -1,12 +1,15 @@
 import argparse
 import concurrent.futures
 import csv
+import html
 import json
+import string
 import sys
 
 import chess
 import chess.engine
 import chess.pgn
+import chess.svg
 
 def player_color(game, player):
     if game.headers.get("White") == player:
@@ -228,7 +231,19 @@ def format_clock(seconds):
     minutes, secs = divmod(round(seconds), 60)
     return f"{minutes}:{secs:02d}"
 
-def position_desc(game, move_num):
+def render_svg_position(move):
+    board = move.board()
+    orientation = not board.turn
+    check = board.king(board.turn) if board.is_check() else None
+    return chess.svg.board(
+        board,
+        orientation=orientation,
+        lastmove=move.move,
+        check=check,
+        size=400,
+    )
+
+def position_desc(game, move_num, svg):
     move = list(game.mainline())[move_num]
     link = game.headers.get("Link")
     return {
@@ -236,12 +251,49 @@ def position_desc(game, move_num):
         "move": move.parent.board().lan(move.move),
         "clock": format_clock(move.clock()),
         "url": f"{link}?move={move_num + 1}" if link else "",
+        "svg": render_svg_position(move) if svg else "",
     }
 
 def write_position_desc_csv(f, rows):
-    writer = csv.DictWriter(f, fieldnames=["fen", "move", "clock", "url"])
+    writer = csv.DictWriter(f, fieldnames=["fen", "move", "clock", "url"], extrasaction="ignore")
     writer.writeheader()
     writer.writerows(rows)
+
+def write_position_desc_html(f, positions):
+    page_template = string.Template("""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Positions</title>
+</head>
+<body>
+$positions
+</body>
+</html>
+""")
+
+    pos_template = string.Template("""
+<div>
+<h3><a href="$url">$num. $url</a></h3>
+$svg
+<p>
+Move: $move<br>
+Clock: $clock<br>
+Comment: - <br>
+</p>
+</div>""")
+
+    pos_blocks = []
+    for i, pos in enumerate(positions):
+        pos_block = pos_template.substitute(
+            num=i + 1,
+            move=html.escape(pos["move"]),
+            clock=html.escape(str(pos["clock"])),
+            url=html.escape(pos["url"]),
+            svg=pos["svg"],
+        )
+        pos_blocks.append(pos_block)
+    f.write(page_template.substitute(positions="\n".join(pos_blocks)))
 
 
 def analyze_lost_evals(game, player):
@@ -286,12 +338,12 @@ def main():
     parser.add_argument("--player", help="Player name to analyze")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel Stockfish workers")
     parser.add_argument("--type", choices=ANALYSIS_GROUPS.keys(), help="Run only this analysis type (default: all)")
-    parser.add_argument("--report", choices=["stats", "games", "positions:csv"], default="stats",
-                        help="What to print: stats (default), games (PGN of games matching --type), positions:csv (position descriptions as CSV)")
+    parser.add_argument("--report", choices=["stats", "games", "positions:csv", "positions:html"], default="stats",
+                        help="What to print: stats (default), games (PGN of games matching --type), positions:csv (position descriptions as CSV), positions:html (position descriptions as HTML with board images)")
     parser.add_argument("--games-count", type=int, help="Analyze only the first N games (0 means all)")
     args = parser.parse_args()
 
-    if args.report in ["games", "positions:csv"] and args.type is None:
+    if args.report in ["games", "positions:csv", "positions:html"] and args.type is None:
         parser.error(f"--report={args.report} requires --type")
 
     games = read_games(args.pgn)
@@ -329,8 +381,11 @@ def main():
     elif args.report == "games":
         write_games(sys.stdout, [g for g in games if g.analyses.get(args.type)])
     elif args.report == "positions:csv":
-        rows = [position_desc(g, g.analyses[f"{args.type}.move"]) for g in games if g.analyses.get(args.type)]
+        rows = [position_desc(g, g.analyses[f"{args.type}.move"], svg=False) for g in games if g.analyses.get(args.type)]
         write_position_desc_csv(sys.stdout, rows)
+    elif args.report == "positions:html":
+        rows = [position_desc(g, g.analyses[f"{args.type}.move"], svg=True) for g in games if g.analyses.get(args.type)]
+        write_position_desc_html(sys.stdout, rows)
 
 if __name__ == "__main__":
     main()

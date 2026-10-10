@@ -8,7 +8,7 @@ script_dir=$(dirname "${BASH_SOURCE[0]}")
 input_file="${1:-games.pgn}"
 perf_cores=$(sysctl -n hw.perflevel0.physicalcpu)
 type="${2:-one_move_blunders}"
-report="${3:-positions:csv}"
+report="${3:-positions:html}"
 games_count=0
 
 "$script_dir/.venv/bin/python" analyze.py \
