@@ -76,6 +76,32 @@ def last_move_above_time(game, player, threshold):
             return move
     return None
 
+
+def time_control(game):
+    """Return (base_seconds, increment_seconds) from the TimeControl header, or (None, 0)."""
+    time_control = game.headers.get("TimeControl", "")
+    base, _, inc = time_control.partition("+")
+    try:
+        return float(base), float(inc or 0)
+    except ValueError:
+        return None, 0
+
+def move_duration(game, move_num):
+    """Return the seconds spent on the move_num, or None."""
+    moves = list(game.mainline())
+    move = moves[move_num]
+    if move.emt() is not None:
+        return move.emt()
+    clk = move.clock()
+    if clk is None:
+        return None
+    base, inc = time_control(game)
+    prev_clk = moves[move_num - 2].clock() if move_num >= 2 else base
+    if prev_clk is None:
+        return None
+    return prev_clk - clk + inc
+
+
 def write_games(f, games):
     for game in games:
         print(game, file=f, end="\n\n")
@@ -250,12 +276,13 @@ def position_desc(game, move_num, svg):
         "fen": move.board().fen(),
         "move": move.parent.board().lan(move.move),
         "clock": format_clock(move.clock()),
+        "move_duration": format_clock(move_duration(game, move_num)),
         "url": f"{link}?move={move_num + 1}" if link else "",
         "svg": render_svg_position(move) if svg else "",
     }
 
 def write_position_desc_csv(f, rows):
-    writer = csv.DictWriter(f, fieldnames=["fen", "move", "clock", "url"], extrasaction="ignore")
+    writer = csv.DictWriter(f, fieldnames=["fen", "move", "clock", "move_duration", "url"], extrasaction="ignore")
     writer.writeheader()
     writer.writerows(rows)
 
@@ -279,6 +306,7 @@ $svg
 <p>
 Move: $move<br>
 Clock: $clock<br>
+Move duration: $move_duration<br>
 Comment: - <br>
 </p>
 </div>""")
@@ -289,6 +317,7 @@ Comment: - <br>
             num=i + 1,
             move=html.escape(pos["move"]),
             clock=html.escape(str(pos["clock"])),
+            move_duration=html.escape(str(pos["move_duration"])),
             url=html.escape(pos["url"]),
             svg=pos["svg"],
         )
