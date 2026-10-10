@@ -1,6 +1,7 @@
 import argparse
 import concurrent.futures
 import json
+import sys
 
 import chess
 import chess.engine
@@ -71,10 +72,9 @@ def last_move_above_time(game, player, threshold):
             return move
     return None
 
-def write_games(pgn_path, games):
-    with open(pgn_path, "w") as f:
-        for game in games:
-            print(game, file=f, end="\n\n")
+def write_games(f, games):
+    for game in games:
+        print(game, file=f, end="\n\n")
 
 def read_games(pgn_path):
     games = []
@@ -263,7 +263,14 @@ def main():
     parser.add_argument("--player", help="Player name to analyze")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel Stockfish workers")
     parser.add_argument("--type", choices=ANALYSIS_GROUPS.keys(), help="Run only this analysis type (default: all)")
+    parser.add_argument("--report", choices=["stats", "games", "one_move_blunders"], default="stats",
+                        help="What to print: stats (default), games (PGN of games matching --type), one_move_blunders (blunder move numbers)")
     args = parser.parse_args()
+
+    if args.report == "games" and args.type is None:
+        parser.error("--report=games requires --type")
+    if args.report == "one_move_blunders" and args.type not in (None, "one_move_blunders"):
+        parser.error("--report=one_move_blunders requires --type=one_move_blunders or no --type")
 
     games = read_games(args.pgn)
     #games = games[:10]
@@ -277,16 +284,16 @@ def main():
     for game in games:
         game.analyses = {}
 
-    print(f"evaluating {stats.total_games} games...")
+    print(f"evaluating {stats.total_games} games...", file=sys.stderr)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = [executor.submit(analyze_lost_evals, g, args.player) for g in games]
         for i, future in enumerate(concurrent.futures.as_completed(futures)):
             future.result()  # reraise exceptions
-            print(f"evaluated {i + 1} of {stats.total_games}")
+            print(f"evaluated {i + 1} of {stats.total_games}", file=sys.stderr)
 
     for i in range(len(games)):
         game = games[i]
-        print(f"analyzing game {i + 1} of {stats.total_games}")
+        print(f"analyzing game {i + 1} of {stats.total_games}", file=sys.stderr)
 
         analysis_names = ANALYSIS_GROUPS[args.type] if args.type else list(ANALYSIS_GROUPS)
         for name in analysis_names:
@@ -295,24 +302,13 @@ def main():
         summary = game_summary(game, args.player)
         #print(json.dumps(summary, indent=2))
 
-    print("stats:")
-    print(json.dumps(stats.data, indent=2))
-
-    games_lost_on_time_with_advantage = [g for g in games if g.analyses.get("lost_on_time_with_advantage")]
-    if games_lost_on_time_with_advantage:
-        write_games("lost_on_time_with_advantage.pgn", games_lost_on_time_with_advantage)
-
-    games_lost_in_time_trouble_with_advantage = [g for g in games if g.analyses.get("lost_in_time_trouble_with_advantage")]
-    if games_lost_in_time_trouble_with_advantage:
-        write_games("lost_in_time_trouble_with_advantage.pgn", games_lost_in_time_trouble_with_advantage)
-
-    games_with_one_move_blunders = [g for g in games if g.analyses.get("one_move_blunders")]
-    if games_with_one_move_blunders:
-        write_games("one_move_blunders.pgn", games_with_one_move_blunders)
-
-    games_with_one_move_blunders_moves = [g.analyses.get("one_move_blunders_move") for g in games if g.analyses.get("one_move_blunders")]
-    print("one move blunders at moves:")
-    print(games_with_one_move_blunders_moves)
+    if args.report == "stats":
+        print(json.dumps(stats.data, indent=2))
+    elif args.report == "games":
+        write_games(sys.stdout, [g for g in games if g.analyses.get(args.type)])
+    elif args.report == "one_move_blunders":
+        moves = [g.analyses["one_move_blunders_move"] for g in games if g.analyses.get("one_move_blunders")]
+        print(moves)
 
 if __name__ == "__main__":
     main()
