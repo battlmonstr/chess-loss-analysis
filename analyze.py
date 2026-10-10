@@ -1,5 +1,6 @@
 import argparse
 import concurrent.futures
+import csv
 import json
 import sys
 
@@ -212,13 +213,35 @@ def analyze_one_move_blunders(game, player, stats):
             and (is_last_move or next_move_captures_or_mates)
         )
         if one_move_blunders:
-            one_move_blunders_move = i // 2 + 1
+            one_move_blunders_move = i
             break
 
     game.analyses["one_move_blunders"] = one_move_blunders
     if one_move_blunders:
-        game.analyses["one_move_blunders_move"] = one_move_blunders_move
+    	# 0-based half-move index
+        game.analyses["one_move_blunders.move"] = one_move_blunders_move
         stats.increment("one_move_blunders")
+
+def format_clock(seconds):
+    if seconds is None:
+        return ""
+    minutes, secs = divmod(round(seconds), 60)
+    return f"{minutes}:{secs:02d}"
+
+def position_desc(game, move_num):
+    move = list(game.mainline())[move_num]
+    link = game.headers.get("Link")
+    return {
+        "fen": move.board().fen(),
+        "move": move.parent.board().lan(move.move),
+        "clock": format_clock(move.clock()),
+        "url": f"{link}?move={move_num + 1}" if link else "",
+    }
+
+def write_position_desc_csv(f, rows):
+    writer = csv.DictWriter(f, fieldnames=["fen", "move", "clock", "url"])
+    writer.writeheader()
+    writer.writerows(rows)
 
 
 def analyze_lost_evals(game, player):
@@ -263,14 +286,12 @@ def main():
     parser.add_argument("--player", help="Player name to analyze")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel Stockfish workers")
     parser.add_argument("--type", choices=ANALYSIS_GROUPS.keys(), help="Run only this analysis type (default: all)")
-    parser.add_argument("--report", choices=["stats", "games", "one_move_blunders"], default="stats",
-                        help="What to print: stats (default), games (PGN of games matching --type), one_move_blunders (blunder move numbers)")
+    parser.add_argument("--report", choices=["stats", "games", "positions:csv"], default="stats",
+                        help="What to print: stats (default), games (PGN of games matching --type), positions:csv (position descriptions as CSV)")
     args = parser.parse_args()
 
-    if args.report == "games" and args.type is None:
-        parser.error("--report=games requires --type")
-    if args.report == "one_move_blunders" and args.type not in (None, "one_move_blunders"):
-        parser.error("--report=one_move_blunders requires --type=one_move_blunders or no --type")
+    if args.report in ["games", "positions:csv"] and args.type is None:
+        parser.error(f"--report={args.report} requires --type")
 
     games = read_games(args.pgn)
     #games = games[:10]
@@ -306,9 +327,9 @@ def main():
         print(json.dumps(stats.data, indent=2))
     elif args.report == "games":
         write_games(sys.stdout, [g for g in games if g.analyses.get(args.type)])
-    elif args.report == "one_move_blunders":
-        moves = [g.analyses["one_move_blunders_move"] for g in games if g.analyses.get("one_move_blunders")]
-        print(moves)
+    elif args.report == "positions:csv":
+        rows = [position_desc(g, g.analyses[f"{args.type}.move"]) for g in games if g.analyses.get(args.type)]
+        write_position_desc_csv(sys.stdout, rows)
 
 if __name__ == "__main__":
     main()
