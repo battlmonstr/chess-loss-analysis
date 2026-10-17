@@ -240,6 +240,7 @@ def analyze_one_move_blunders(game, player, stats):
             and (eval_before >= -0.5)
             and (eval_after < -0.5)
             and (is_last_move or next_move_captures_or_mates)
+            and (move.clock() >= 20)
         )
         if is_blunder:
             blunder_moves.append(i)
