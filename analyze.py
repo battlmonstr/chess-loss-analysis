@@ -218,7 +218,7 @@ def analyze_one_move_blunders(game, player, stats):
     moves = list(game.mainline())
     evals = game.analyses["evals"]
 
-    one_move_blunders = False
+    blunder_moves = []
     for i in range(len(evals)):
         move = moves[i]
         if move.board().turn == color:
@@ -235,20 +235,19 @@ def analyze_one_move_blunders(game, player, stats):
             and (move.board().is_capture(next_move.move) or next_move.board().is_checkmate())
         )
 
-        one_move_blunders = (
+        is_blunder = (
             (eval_drop >= BLUNDER_THRESHOLD)
             and (eval_before >= -0.5)
             and (eval_after < -0.5)
             and (is_last_move or next_move_captures_or_mates)
         )
-        if one_move_blunders:
-            one_move_blunders_move = i
-            break
+        if is_blunder:
+            blunder_moves.append(i)
 
-    game.analyses["one_move_blunders"] = one_move_blunders
-    if one_move_blunders:
-    	# 0-based half-move index
-        game.analyses["one_move_blunders.move"] = one_move_blunders_move
+    game.analyses["one_move_blunders"] = bool(blunder_moves)
+    if blunder_moves:
+        # 0-based half-move indexes
+        game.analyses["one_move_blunders.moves"] = blunder_moves
         stats.increment("one_move_blunders")
 
 def format_clock(seconds):
@@ -405,15 +404,22 @@ def main():
         summary = game_summary(game, args.player)
         #print(json.dumps(summary, indent=2))
 
+    if args.report.startswith("positions:"):
+        game_moves = [
+            (g, move)
+            for g in games if g.analyses.get(args.type)
+            for move in g.analyses[f"{args.type}.moves"]
+        ]
+
     if args.report == "stats":
         print(json.dumps(stats.data, indent=2))
     elif args.report == "games":
         write_games(sys.stdout, [g for g in games if g.analyses.get(args.type)])
     elif args.report == "positions:csv":
-        rows = [position_desc(g, g.analyses[f"{args.type}.move"], svg=False) for g in games if g.analyses.get(args.type)]
+        rows = [position_desc(g, move, svg=False) for g, move in game_moves]
         write_position_desc_csv(sys.stdout, rows)
     elif args.report == "positions:html":
-        rows = [position_desc(g, g.analyses[f"{args.type}.move"], svg=True) for g in games if g.analyses.get(args.type)]
+        rows = [position_desc(g, move, svg=True) for g, move in game_moves]
         write_position_desc_html(sys.stdout, rows)
 
 if __name__ == "__main__":
